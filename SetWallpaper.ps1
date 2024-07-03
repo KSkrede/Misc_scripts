@@ -13,18 +13,15 @@ function Select-ImageFile {
 
 # Function to generate the PowerShell script to change the wallpaper
 function Generate-ChangeWallpaperScript {
-    param(
-        [string] $WallpaperPath,
-        [string] $OutputFile = "change_wallpaper.ps1"
-    )
+    $OutputDirectory = "C:\temp\WallpaperSetter"
+    $OutputFile = "change_wallpaper.ps1"
 
-    # Escape backslashes and double-quote the path
-    $escapedWallpaperPath = $WallpaperPath -replace '\\', '\\\\'
+    # Ensure the output directory exists
+    if (-not (Test-Path -Path $OutputDirectory)) {
+        New-Item -ItemType Directory -Path $OutputDirectory -Force
+    }
 
     $scriptContent = @"
-# Path to the new wallpaper (input as a string)
-\$wallpaperPath = "$escapedWallpaperPath"
-
 # Change the wallpaper
 Add-Type -TypeDefinition '
 using System;
@@ -39,36 +36,39 @@ public class Wallpaper {
     }
 }
 '
-[Wallpaper]::Set(\$wallpaperPath)
+[Wallpaper]::Set("C:\temp\WallpaperSetter\wallpaper.jpg")
 "@
 
-    $startupFolder = [System.IO.Path]::Combine([System.Environment]::GetFolderPath('Startup'), $OutputFile)
-    Set-Content -Path $startupFolder -Value $scriptContent -Force
-    return $startupFolder
+    $ps1ScriptPath = [System.IO.Path]::Combine($OutputDirectory, $OutputFile)
+    Set-Content -Path $ps1ScriptPath -Value $scriptContent -Force
+    return $ps1ScriptPath
 }
 
 # Function to generate the .bat file to run the PowerShell script on startup
 function Generate-RunOnStartupBatFile {
     param(
-        [string] $Ps1ScriptPath,
         [string] $OutputFile = "run_ps1_on_startup.bat"
     )
+
+    $Ps1ScriptPath = "C:\temp\WallpaperSetter\change_wallpaper.ps1"
 
     $batContent = @"
 @echo off
 powershell.exe -ExecutionPolicy Bypass -File "$Ps1ScriptPath"
 "@
 
-    $batPath = [System.IO.Path]::Combine([System.Environment]::GetFolderPath('Startup'), $OutputFile)
+    $startupFolder = [System.Environment]::GetFolderPath('Startup')
+    $batPath = [System.IO.Path]::Combine($startupFolder, $OutputFile)
     Set-Content -Path $batPath -Value $batContent -Force
     return $batPath
 }
 
-# Function to uninstall/delete the generated files from the startup folder
+# Function to uninstall/delete the generated files
 function Uninstall-StartupFiles {
-    $startupFolder = [System.Environment]::GetFolderPath('Startup')
-    $ps1FilePath = [System.IO.Path]::Combine($startupFolder, "change_wallpaper.ps1")
-    $batFilePath = [System.IO.Path]::Combine($startupFolder, "run_ps1_on_startup.bat")
+    $outputDirectory = "C:\temp\WallpaperSetter"
+    $ps1FilePath = [System.IO.Path]::Combine($outputDirectory, "change_wallpaper.ps1")
+    $batFilePath = [System.IO.Path]::Combine([System.Environment]::GetFolderPath('Startup'), "run_ps1_on_startup.bat")
+    $wallpaperFilePath = [System.IO.Path]::Combine($outputDirectory, "wallpaper.jpg")
 
     if (Test-Path $ps1FilePath) {
         Remove-Item $ps1FilePath -Force
@@ -78,6 +78,16 @@ function Uninstall-StartupFiles {
     if (Test-Path $batFilePath) {
         Remove-Item $batFilePath -Force
         [System.Windows.Forms.MessageBox]::Show("Deleted '$batFilePath'")
+    }
+
+    if (Test-Path $wallpaperFilePath) {
+        Remove-Item $wallpaperFilePath -Force
+        [System.Windows.Forms.MessageBox]::Show("Deleted '$wallpaperFilePath'")
+    }
+
+    if (Test-Path $outputDirectory) {
+        Remove-Item $outputDirectory -Force -Recurse
+        [System.Windows.Forms.MessageBox]::Show("Deleted '$outputDirectory'")
     }
 
     [System.Windows.Forms.MessageBox]::Show("Uninstallation complete.")
@@ -94,12 +104,30 @@ function Install-WallpaperChanger {
 
     Write-Output "Selected picture path: $selectedImagePath"
 
+    # Define the output directory and file paths
+    $outputDirectory = "C:\temp\WallpaperSetter"
+    $destinationImagePath = "C:\temp\WallpaperSetter\wallpaper.jpg"
+    $ps1ScriptPath = "C:\temp\WallpaperSetter\change_wallpaper.ps1"
+
+    # Ensure the output directory exists
+    if (-not (Test-Path -Path $outputDirectory)) {
+        New-Item -ItemType Directory -Path $outputDirectory -Force
+    }
+
+    # Copy the selected image to the output directory with a fixed name
+    Copy-Item -Path $selectedImagePath -Destination $destinationImagePath -Force
+    Write-Output "Copied image to: $destinationImagePath"
+
     # Generate PowerShell script to change the wallpaper
-    $ps1ScriptPath = Generate-ChangeWallpaperScript -WallpaperPath $selectedImagePath
+    $ps1ScriptPath = Generate-ChangeWallpaperScript
     Write-Output "Generated PowerShell script: $ps1ScriptPath"
 
+    # Run the PowerShell script immediately to change the wallpaper
+    Write-Output "Running PowerShell script to change the wallpaper"
+    powershell.exe -ExecutionPolicy Bypass -File $ps1ScriptPath
+
     # Generate .bat file to run PowerShell script on startup
-    $batScriptPath = Generate-RunOnStartupBatFile -Ps1ScriptPath $ps1ScriptPath
+    $batScriptPath = Generate-RunOnStartupBatFile
     Write-Output "Generated .bat file for startup: $batScriptPath"
 
     [System.Windows.Forms.MessageBox]::Show("Wallpaper changer installed. Script path: $ps1ScriptPath`nBatch file path: $batScriptPath")
